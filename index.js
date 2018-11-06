@@ -42,6 +42,10 @@ module.exports = async function fetchRetry(url, options) {
           options.retryOptions[`status_${('' + status).slice(0, 1)}xx`] ||
           options.retryOptions
 
+        if (!retryOptions) {
+          return response
+        }
+
         if (retries > retryOptions.maxRetries) {
           // we've exceeded our maxRetries, so we fail.
           options.verbose &&
@@ -64,7 +68,10 @@ module.exports = async function fetchRetry(url, options) {
         if (typeof retryOptions.retryTimeout === 'function') {
           // we've been given a function.  we'll wait until that function
           // resolves its promise, then retry.
-          await retryOptions.retryTimeout(response)
+          await await retryOptions.retryTimeout({
+            response,
+            retry: retries,
+          })
         } else {
           // we've been given a numeric retryTimeout.  we wait that many milliseconds.
           await wait(retryOptions.retryTimeout)
@@ -73,7 +80,11 @@ module.exports = async function fetchRetry(url, options) {
     } catch (err) {
       retries++
       const retryOptions = options.retryOptions
-      if (retries > retryOptions.maxRetries) {
+      if (
+        !retryOptions ||
+        !retryOptions.maxRetries ||
+        retries > retryOptions.maxRetries
+      ) {
         options.verbose && console.log('FATAL failure, no more retries', err)
         throw err
       }
@@ -86,7 +97,10 @@ module.exports = async function fetchRetry(url, options) {
           err
         )
       if (typeof retryOptions.retryTimeout === 'function')
-        await retryOptions.retryTimeout(null, err)
+        await retryOptions.retryTimeout({
+          error: err,
+          retry: retries,
+        })
       else await wait(retryOptions.retryTimeout)
     }
   }

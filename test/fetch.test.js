@@ -253,6 +253,44 @@ describe('Retry', function() {
     expect(result).to.be.undefined
     expect(exceptionCaught).to.be.true
   })
+
+  it('should call fetch once, with no retries, if no default options are provided', async () => {
+    sandbox.stub(testFns, 'fetch').rejects()
+    sandbox.spy(testFns, 'retryTimeout')
+    let result
+    let exceptionCaught = false
+    try {
+      result = await fetchRetry('https://google.ca', {
+        method: 'get',
+        retryOptions: {
+          status_400: {
+            maxRetries: 5,
+            retryTimeout: 1,
+          },
+          status_4xx: {
+            maxRetries: 5,
+            retryTimeout: 1,
+          },
+          status_5xx: {
+            maxRetries: 5,
+            retryTimeout: 1,
+          },
+          status_502: {
+            maxRetries: 5,
+            retryTimeout: 1,
+          },
+        },
+        fetch: testFns.fetch,
+      })
+    } catch (e) {
+      exceptionCaught = true
+    }
+
+    expect(testFns.fetch.callCount).to.equal(1)
+    expect(testFns.retryTimeout.callCount).to.equal(0)
+    expect(result).to.be.undefined
+    expect(exceptionCaught).to.be.true
+  })
 })
 
 const testFns = {
@@ -260,7 +298,7 @@ const testFns = {
     await wait(1)
     return { status: 200 }
   },
-  retryTimeout: async (response, error) => {
+  retryTimeout: async retryContext => {
     await wait(1)
   },
 }

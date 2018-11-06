@@ -1,68 +1,118 @@
-# fetch-retryable
+# Fetch-Retryable
 
-`fetchRetry(url, options)` is a simple http retry utility with the ability to specify different behaviours depending on status code results.  This is useful in many cases.  Often, a 503 (for example) is an error that you can continue retrying for a long time - eventually (hopefully) the server will come back, and your work will succeed.  400-bad request, on the other hand, is arguably not retryable, as 400 indicates that it is the *request* that is incorrect and must be fixed.
+Fetch-Retryable is a simple utility module which wraps [fetch](https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/fetch) (both in the browser and in node) in order to specify custom retry behaviours depending upon response statusCode and/or type of exception thrown.
 
-`url` is the url to request.
-`options` is an object that includes any fetch related options necessary [https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/fetch]().  It **also** includes an (optional) field: `retryOptions`.
+Often, when working with third-party APIs, one needs the ability to retry a failed request *in different ways, depending on the response to that request*.  For example, a `503-Service Unavailable` error is (typically) infinitely retryable.  On the other hand, `400-Bad Request` is typically because of a client error, and so a retry would not be helpful.  Similarly, many implementations of API rate-limiting will explicitly tell the client how long to wait before rate-limiting.  Other APIs may request that clients implement exponential-backoff in their retry behaviour.
 
-`retryOptions` is defined as follows:
-```
-fetch('https://google.ca', {
+It's a complicated world.
+
+Enter fetch-retryable.  This simple module wraps [fetch](https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/fetch) both in-browser and at the server, and gives the caller the ability to configure custom retry behaviour.
+
+## Quickstart
+
+Fetch-Retryable depends upon [isomorphic-fetch](https://www.npmjs.com/package/isomorphic-fetch), which itself depends upon [fetch](https://github.com/github/fetch) or [node-fetch](https://github.com/bitinn/node-fetch) to enable fetch on both client or server.  Take a look at their documentation for details on making fetch requests.
+
+Fetch-retryable (`fetchRetryable(url, options)`) is a drop-in replacement for fetch.  In addition to the options specified in your fetch call, there is one more option it enables: `retryOptions`.
+
+`retryOptions` gives you the ability to set maxRetries and retryTimeout for all responses, per statusCode class, or per statusCode.  Here's a simple example:
+
+```javascript
+import fetchRetryable from 'fetch-retryable';
+const response = await fetchRetryable('https://google.ca', {
   method: 'get',
   retryOptions: {
-    maxRetries: 3,                  // DEFAULT maxRetries applied to all requests that do not match a specific status code
-    retryTimeout: 100,              // DEFAULT retryTimeout applied to all requests that do not match a specific status code
-    status_5xx: {                   // options for 5xx class errors only.
-      maxRetries: 3,
-      retryTimeout: 10000,
-    },
-    status_503: {                   // options for 503 errors
-      maxRetries: 3,
-      retryTimeout: 10000
+    retryTimeout: 100,
+    maxRetries: 3,
+    status_503: {
+      retryTimeout: 5000,
+      maxRetries: 10
     }
   }
 })
 ```
 
-When an exception is thrown, the default options described above will be used (3 retries, retryTimeout:100).
+In the above example, we're setting both the default retry (max:3, timeout: 100), and we're setting a specific retry handler for 503 statusCodes (max: 10, timeout: 5000).
 
-If a statusCode is returned, fetchRetry will first look for a specific code in retryOptions (eg 503).  If it does not find one, it falls back to looking for class options (eg, 5xx).  If it does not find class options, it uses the default retry options.
+## What else can I do?
 
-If a `retryOptions` field is not defined when fetchRetry is called, it uses the default:
+I'm glad you asked.
 
-```
-options.retryOptions = {
-  maxRetries: 3,
-  retryTimeout: 100,
-}
-```
-
-Just a quick note: maxRetries means "do the thing once, then RETRY IT maxRetries times".  So maxRetries 3 will result in your url being called 4 times total (on failure).
-
-#### Function-based timeout
-
-For cases in which you don't want a fixed retry timeout, you can provide retryOptions a function in place of a millisecond timeout.  Instead of fetchRetry waiting for options.retryOptions.retryTimeout ms, it will `await options.retryOptions.retryTimeout(response, error)`
-
-As you see, the response from the request is provided as an argument to your function. If the retry is due to an exception, the response argument will be null, and the error argument will be pass as the second argument.
-
-This allows you to implement functions that have variable timeouts based on the response from the server.  For example, spotify rate-limits with statusCode 429, and provides a 'retry-after' header.  For this, you would do something like (pseudo-code, please do not use, make sure to handle error cases / etc):
-
-```
-options.retryOptions = {
-  maxRetries: 3,
-  retryTimeout: 100,
-  status_429: {
-    maxRetries: 5,
-    retryTimeout: async function(response) {
-      // get the retry-after header, a value in seconds.
-      const retryAfter = response.headers['retry-after']
-      // wait retry-after * 1000 milliseconds.
-      await wait(retryAfter * 1000)
-
-      // done.  retry can happen.
+### Status code, status code class, and default retry behaviours
+In the `retryOptions` field, there are three classes of retry options you can provide:
+```javascript
+const response = await fetchRetryable('https://google.ca', {
+  method: 'get',
+  retryOptions: {
+    retryTimeout: 100,            // Default behaviour
+    maxRetries: 3,
+    status_503: {                 // Retry behaviour for 503 errors only
+      retryTimeout: 5000,
+      maxRetries: 10
+    },
+    status_5xx: {                 // Behaviour for all 5xx class errors
+      retryTimeout: 100,
+      maxRetries: 2
     }
   }
-}
+})
 ```
 
-You can also implement custom exponential backoff retry strategies.  Instead of having a fixed timeout, you can start with 100ms and have it back-off by doubling the retry each time: 100ms, 200ms, 400ms, 800ms, etc.
+As you can see above, you can provide behaviour that catches specific status codes, status code classes (eg `status_5xx`), and default.  `fetchRetryable` tests in order of specificity, meaning `status_503` beats `status_5xx` which beats the default retry options.
+
+### Custom retry timeout function
+As we pointed out earlier, it's a complicated world, so to make things easier, `fetchRetryable` allows you to provide a custom retry timeout function.
+
+That function should match the following signature: `retryTimeout(retryContext)`
+
+`retryContext` is an object containing information about the current retry.  It will always include a field `retry: 1` indicating which retry this is.  Additionally, it may contain a `response` object (the response object returned from the fetch call, from which you can get `response.statusCode`) or an `error` object (if an exception was thrown)
+
+*Important*: It's probably not a terrific idea to, for example, `await response.json()` in your retryTimeout handler.  You can only retrieve the body of a response once.
+
+Example (retry-after):
+```javascript
+const response = await fetchRetryable('https://google.ca', {
+  method: 'get',
+  retryOptions: {
+    retryTimeout: 100,            // Default behaviour
+    maxRetries: 3,
+    status_429: {                 // Retry behaviour for 503 errors only
+      retryTimeout: async (retryContext) => {
+        const retryAfter = retryContext.response.headers.get('retry-after')
+        await new Promise((resolve, reject) => {
+          setTimeout(() => {
+            resolve()
+          }, retryAfter * 1000)
+        })
+      },
+      maxRetries: 10
+    }
+  }
+})
+```
+
+In the example above, the `429-Too Many Requests` statusCode response includes the header 'retry-after', which specifies how long the server expects the client to wait.  When that statusCode is received, the retryTimeout function is called, the header is inspected, and the client waits before retrying.
+
+Example (exponential backoff):
+```javascript
+const response = await fetchRetryable('https://google.ca', {
+  method: 'get',
+  retryOptions: {
+    retryTimeout: 100,            // Default behaviour
+    maxRetries: 3,
+    status_429: {                 // Retry behaviour for 503 errors only
+      retryTimeout: async (retryContext) => {
+        const initialRetryTimeout = 100;  // the timeout of the first retry.
+        const timeout = (Math.pow(2, retryContext.retry - 1)) * 100;
+        await new Promise((resolve, reject) => {
+          setTimeout(() => {
+            resolve()
+          }, timeout)
+        })
+      },
+      maxRetries: 10
+    }
+  }
+})
+```
+
+In this example, our retry handler does not look at the retry-after field.  Instead, it implements exponential backoff starting at 100ms.  That means: retry 1 will wait 100ms.  Retry 2 will wait 200ms.  Retry 3 will wait 400ms.  Retry 4 waits 800ms, and so on.
