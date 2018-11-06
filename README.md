@@ -64,7 +64,7 @@ As we pointed out earlier, it's a complicated world, so to make things easier, `
 
 That function should match the following signature: `retryTimeout(retryContext)`
 
-`retryContext` is an object containing information about the current retry.  It will always include a field `retry: 1` indicating which retry this is.  Additionally, it may contain a `response` object (the response object returned from the fetch call, from which you can get `response.statusCode`) or an `error` object (if an exception was thrown)
+`retryContext` is an object containing information about the current retry.  It will always include a field `retry: 1` indicating which retry (zero-based) is coming up.  Additionally, it may contain a `response` object (the response object returned from the fetch call, from which you can get `response.statusCode`) or an `error` object (if an exception was thrown)
 
 *Important*: It's probably not a terrific idea to, for example, `await response.json()` in your retryTimeout handler.  You can only retrieve the body of a response once.
 
@@ -75,7 +75,7 @@ const response = await fetchRetryable('https://google.ca', {
   retryOptions: {
     retryTimeout: 100,            // Default behaviour
     maxRetries: 3,
-    status_429: {                 // Retry behaviour for 503 errors only
+    status_429: {                 // Retry behaviour for 429 errors only
       retryTimeout: async (retryContext) => {
         const retryAfter = retryContext.response.headers.get('retry-after')
         await new Promise((resolve, reject) => {
@@ -99,10 +99,10 @@ const response = await fetchRetryable('https://google.ca', {
   retryOptions: {
     retryTimeout: 100,            // Default behaviour
     maxRetries: 3,
-    status_429: {                 // Retry behaviour for 503 errors only
+    status_429: {                 // Retry behaviour for 429 errors only
       retryTimeout: async (retryContext) => {
         const initialRetryTimeout = 100;  // the timeout of the first retry.
-        const timeout = (Math.pow(2, retryContext.retry - 1)) * 100;
+        const timeout = (Math.pow(2, retryContext.retry)) * 100;
         await new Promise((resolve, reject) => {
           setTimeout(() => {
             resolve()

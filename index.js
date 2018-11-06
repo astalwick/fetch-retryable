@@ -70,7 +70,7 @@ module.exports = async function fetchRetry(url, options) {
           // resolves its promise, then retry.
           await await retryOptions.retryTimeout({
             response,
-            retry: retries,
+            retry: retries - 1,
           })
         } else {
           // we've been given a numeric retryTimeout.  we wait that many milliseconds.
@@ -99,7 +99,7 @@ module.exports = async function fetchRetry(url, options) {
       if (typeof retryOptions.retryTimeout === 'function')
         await retryOptions.retryTimeout({
           error: err,
-          retry: retries,
+          retry: retries - 1,
         })
       else await wait(retryOptions.retryTimeout)
     }
