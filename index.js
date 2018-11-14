@@ -15,6 +15,7 @@ module.exports = async function fetchRetry(url, options) {
     return fetch(url, options)
   }
 
+  let response
   let retries = 0
   while (true) {
     try {

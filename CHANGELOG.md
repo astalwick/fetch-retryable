@@ -1,6 +1,10 @@
 Changelog
 ---------
 
+1.1.2
+-----
+- Fix undeclared variable
+
 1.1.1
 -----
 - retryContext.retry should be zero-based.
